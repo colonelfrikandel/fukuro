@@ -93,6 +93,7 @@ data class Metadata(
     val publishedYear: String? = null,
     val genres: List<String> = emptyList(),
     val isbn: String? = null,
+    val asin: String? = null,
 )
 
 @Serializable

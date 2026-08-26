@@ -1656,7 +1656,11 @@ fun RecommendationDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            val facts = listOfNotNull(book.publishedYear?.toString(), book.isbn?.let { "ISBN $it" })
+            val facts = listOfNotNull(
+                book.publishedYear?.toString(),
+                book.isbn?.let { "ISBN $it" },
+                book.asin?.let { "ASIN $it" },
+            )
             if (facts.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
