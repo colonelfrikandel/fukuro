@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -56,6 +58,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -631,6 +634,7 @@ fun HomeScreen(
     onOpenNarrator: (String) -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
+    onOpenRecommendation: (BookRecommendation) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
@@ -757,11 +761,27 @@ fun HomeScreen(
                     "recommendations" -> {
                         when {
                             state.recommendations.isNotEmpty() -> {
-                                item { SectionHeader("Recommended for you") }
-                                item { RecommendationRow(state.recommendations, state.coverSize) }
+                                item {
+                                    RecommendationHeader(
+                                        refreshing = state.recommendationsLoading,
+                                        onRefresh = { vm.refreshRecommendations(force = true) },
+                                    )
+                                }
+                                item {
+                                    RecommendationRow(
+                                        state.recommendations,
+                                        state.coverSize,
+                                        onOpenRecommendation,
+                                    )
+                                }
                             }
                             state.recommendationsLoading -> {
-                                item { SectionHeader("Recommended for you") }
+                                item {
+                                    RecommendationHeader(
+                                        refreshing = true,
+                                        onRefresh = { vm.refreshRecommendations(force = true) },
+                                    )
+                                }
                                 item {
                                     Box(
                                         Modifier.fillMaxWidth().height(96.dp),
@@ -770,7 +790,12 @@ fun HomeScreen(
                                 }
                             }
                             state.recommendationsError != null -> {
-                                item { SectionHeader("Recommended for you") }
+                                item {
+                                    RecommendationHeader(
+                                        refreshing = false,
+                                        onRefresh = { vm.refreshRecommendations(force = true) },
+                                    )
+                                }
                                 item {
                                     Row(
                                         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1522,13 +1547,33 @@ private fun BookRow(vm: ShelfViewModel, books: List<LibraryItem>, state: UiState
 }
 
 @Composable
-private fun RecommendationRow(books: List<BookRecommendation>, coverSize: Int) {
-    val uriHandler = LocalUriHandler.current
+private fun RecommendationHeader(refreshing: Boolean, onRefresh: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Recommended for you", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        if (refreshing) {
+            CircularProgressIndicator(Modifier.padding(10.dp).size(20.dp), strokeWidth = 2.dp)
+        } else {
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Rounded.Refresh, "Refresh recommendations")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendationRow(
+    books: List<BookRecommendation>,
+    coverSize: Int,
+    onOpenRecommendation: (BookRecommendation) -> Unit,
+) {
     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
         items(books, key = { "${it.provider}:${it.id}" }) { book ->
             Column(
                 Modifier.width(coverRowWidth(coverSize).dp).padding(4.dp)
-                    .clickable { uriHandler.openUri(book.detailUrl) }
+                    .clickable { onOpenRecommendation(book) }
             ) {
                 CoverImage(
                     model = book.coverUrl,
@@ -1559,6 +1604,144 @@ private fun RecommendationRow(books: List<BookRecommendation>, coverSize: Int) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun RecommendationDetailScreen(
+    vm: ShelfViewModel,
+    recommendation: BookRecommendation,
+    onBack: () -> Unit,
+) {
+    var book by remember(recommendation) { mutableStateOf(recommendation) }
+    var loading by remember(recommendation) { mutableStateOf(true) }
+    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(recommendation) {
+        book = runCatching { vm.recommendationDetails(recommendation) }.getOrDefault(recommendation)
+        loading = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Recommendation") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CoverImage(
+                model = book.coverUrl,
+                contentDescription = book.title,
+                modifier = Modifier.size(196.dp).clip(RoundedCornerShape(14.dp)),
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(book.title, style = MaterialTheme.typography.headlineSmall)
+            if (book.authors.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    book.authors.joinToString(", "),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val facts = listOfNotNull(book.publishedYear?.toString(), book.isbn?.let { "ISBN $it" })
+            if (facts.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    facts.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Text(
+                    book.reason,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "Synopsis",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            when {
+                loading -> CircularProgressIndicator(Modifier.size(28.dp))
+                book.description.isNullOrBlank() -> Text(
+                    "No synopsis is available from ${book.provider}.",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> Text(
+                    android.text.Html.fromHtml(
+                        book.description.orEmpty(),
+                        android.text.Html.FROM_HTML_MODE_COMPACT,
+                    ).toString(),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            if (book.subjects.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    "Tags",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    book.subjects.forEach { subject ->
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                subject,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "Metadata from ${book.provider}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { uriHandler.openUri(book.detailUrl) }) {
+                Text("View source")
+            }
+            Spacer(Modifier.height(140.dp))
         }
     }
 }

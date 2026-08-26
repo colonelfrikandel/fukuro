@@ -11,7 +11,7 @@ A personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/),
 - **Series & authors** — real series grouping from the server, author portraits, tap through to a grid of their books
 - **Chapters** — collapsible chapter list in the player, current chapter always visible, tap to seek
 - **Favorites** — heart any book (stored on-device) and get a Favorites shelf
-- **Recommendations** — discover books through Open Library, optionally enriched by Google Books, using your authors, tags, genres, favorites and listening history
+- **Recommendations** — discover books through Open Library, optionally enriched by Google Books, using your authors, tags, genres, favorites and listening history; open an in-app page for synopsis and tags
 - **Mark finished / reset progress / rename** — per book, synced to the server
 - **Upload books** — add an Audiobookshelf API key in Settings, then upload audio files straight from the phone
 - **Sleep timer & playback speed** — bottom sheets with presets plus custom values (speed up to 10×)

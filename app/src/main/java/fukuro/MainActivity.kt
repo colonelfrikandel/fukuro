@@ -170,7 +170,8 @@ fun AppNav(
     )
     // the app always opens straight into the library; the server is optional and is
     // added from the status chip on Home or from Settings
-    val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
+    val showChrome = route != "player" && route != "login" && route != "recommendation" &&
+        !route.startsWith("book/")
 
     fun bookId(item: MediaItem?): String? = item?.mediaId
         ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
@@ -216,6 +217,9 @@ fun AppNav(
 
     // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
     var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    var selectedRecommendation by androidx.compose.runtime.remember {
+        mutableStateOf<BookRecommendation?>(null)
+    }
 
     // fukuro://book/<id> and fukuro://series/<id> from pinned shortcuts and widgets
     val ctx = LocalContext.current
@@ -266,7 +270,20 @@ fun AppNav(
                         onOpenBook = { id -> sheetItem = id },
                         onOpenSeries = { id -> nav.navigate("series/$id") },
                         onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") },
-                        onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") })
+                        onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") },
+                        onOpenRecommendation = { book ->
+                            selectedRecommendation = book
+                            nav.navigate("recommendation")
+                        })
+                }
+                composable("recommendation") {
+                    selectedRecommendation?.let { book ->
+                        RecommendationDetailScreen(
+                            vm = vm,
+                            recommendation = book,
+                            onBack = { nav.popBackStack() },
+                        )
+                    } ?: LaunchedEffect(Unit) { nav.popBackStack() }
                 }
                 composable("library") {
                     LibraryScreen(

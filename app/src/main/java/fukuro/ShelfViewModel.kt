@@ -144,7 +144,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 if (cached.isNotEmpty()) _state.value = _state.value.copy(recommendations = cached)
             }
             _state.value = _state.value.copy(
-                recommendationsLoading = _state.value.recommendations.isEmpty(),
+                recommendationsLoading = true,
                 recommendationsError = null,
             )
             try {
@@ -170,6 +170,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
+        recommendationService.details(book)
 
     /**
      * Cover for any book. On-device books use the file scanned out of their folder and
