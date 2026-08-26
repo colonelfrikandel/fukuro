@@ -11,10 +11,11 @@ A personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/),
 - **Series & authors** — real series grouping from the server, author portraits, tap through to a grid of their books
 - **Chapters** — collapsible chapter list in the player, current chapter always visible, tap to seek
 - **Favorites** — heart any book (stored on-device) and get a Favorites shelf
+- **Recommendations** — discover books through Open Library, optionally enriched by Google Books, using your authors, tags, genres, favorites and listening history
 - **Mark finished / reset progress / rename** — per book, synced to the server
 - **Upload books** — add an Audiobookshelf API key in Settings, then upload audio files straight from the phone
 - **Sleep timer & playback speed** — bottom sheets with presets plus custom values (speed up to 10×)
-- **Customizable home screen** — toggle & reorder: Continue Listening, Favorites, Downloaded, Series, Authors, All Books
+- **Customizable home screen** — toggle and reorder shelves, including Recommendations, Continue Listening, Favorites, Downloaded, Series, Authors, and All Books
 - **Theming** — light / dark / system, eight accent colors (default: Fukuro orange) or Material You
 - **Server connection indicator** — green/red dot in the top bar
 - **Listening statistics** — period summaries and charts, listening habits, completed-book
@@ -36,6 +37,7 @@ app/src/main/
   java/fukuro/
     ShelfApp.kt           app singleton (store, api, downloads)
     Api.kt                Audiobookshelf REST client
+    Recommendations.kt    Open Library + Google Books discovery, scoring, cache
     Models.kt             API data classes
     Store.kt              settings + favorites (DataStore)
     Downloads.kt          offline downloads

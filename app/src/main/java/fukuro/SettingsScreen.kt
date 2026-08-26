@@ -248,12 +248,14 @@ fun SettingsScreen(
         }
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
+    val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
     val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
+    var googleBooksKeyText by remember(storedGoogleBooksKey) { mutableStateOf(storedGoogleBooksKey) }
     var showCustomShelfEditor by remember { mutableStateOf(false) }
 
     val enabled = sectionsCsv.split(',').filter { it.isNotBlank() }
@@ -551,6 +553,30 @@ fun SettingsScreen(
 
             item(key = "server") {
                 Column {
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            Text("Recommendations", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Open Library works automatically. Add a Google Books API key to improve covers, descriptions, categories, and matching.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                googleBooksKeyText, { googleBooksKeyText = it }, singleLine = true,
+                label = { Text("Google Books API key (optional)") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.setGoogleBooksKey(googleBooksKeyText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save and refresh") }
+
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))

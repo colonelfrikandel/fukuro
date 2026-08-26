@@ -100,6 +100,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
@@ -650,6 +651,12 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(sectionsCsv, state.allItems.size) {
+        if ("recommendations" in sectionsCsv.split(',') && state.allItems.isNotEmpty()) {
+            vm.refreshRecommendations()
+        }
+    }
+
     Scaffold(topBar = {
         TopAppBar(
             title = {
@@ -697,7 +704,12 @@ fun HomeScreen(
     }) { pad ->
         PullToRefreshBox(
             isRefreshing = state.loading,
-            onRefresh = { vm.refresh() },
+            onRefresh = {
+                vm.refresh()
+                if ("recommendations" in sectionsCsv.split(',')) {
+                    vm.refreshRecommendations(force = true)
+                }
+            },
             modifier = Modifier.fillMaxSize().padding(pad)
         ) {
         LazyColumn(Modifier.fillMaxSize()) {
@@ -740,6 +752,42 @@ fun HomeScreen(
                         if (favs.isNotEmpty()) {
                             item { SectionHeader("Favorites") }
                             item { BookRow(vm, favs, state, onOpenBook) }
+                        }
+                    }
+                    "recommendations" -> {
+                        when {
+                            state.recommendations.isNotEmpty() -> {
+                                item { SectionHeader("Recommended for you") }
+                                item { RecommendationRow(state.recommendations, state.coverSize) }
+                            }
+                            state.recommendationsLoading -> {
+                                item { SectionHeader("Recommended for you") }
+                                item {
+                                    Box(
+                                        Modifier.fillMaxWidth().height(96.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) { CircularProgressIndicator(Modifier.size(28.dp)) }
+                                }
+                            }
+                            state.recommendationsError != null -> {
+                                item { SectionHeader("Recommended for you") }
+                                item {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            state.recommendationsError ?: "Could not load recommendations",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = { vm.refreshRecommendations(force = true) }) {
+                                            Text("Try again")
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     "completed" -> {
@@ -1469,6 +1517,48 @@ private fun BookRow(vm: ShelfViewModel, books: List<LibraryItem>, state: UiState
     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
         items(books, key = { it.id }) { book ->
             BookShelfCard(vm, book, state, onOpenBook)
+        }
+    }
+}
+
+@Composable
+private fun RecommendationRow(books: List<BookRecommendation>, coverSize: Int) {
+    val uriHandler = LocalUriHandler.current
+    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+        items(books, key = { "${it.provider}:${it.id}" }) { book ->
+            Column(
+                Modifier.width(coverRowWidth(coverSize).dp).padding(4.dp)
+                    .clickable { uriHandler.openUri(book.detailUrl) }
+            ) {
+                CoverImage(
+                    model = book.coverUrl,
+                    contentDescription = book.title,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)),
+                )
+                Text(
+                    book.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (book.authors.isNotEmpty()) {
+                    Text(
+                        book.authors.joinToString(", "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    book.reason,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

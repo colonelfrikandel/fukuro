@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import android.net.Uri
 
 data class UiState(
@@ -32,6 +33,9 @@ data class UiState(
     val continueHidden: Set<String> = emptySet(),
     val progressStyle: String = "circle", // "circle" | "bar"
     val coverSize: Int = 2, // 0..4, 2 = default
+    val recommendations: List<BookRecommendation> = emptyList(),
+    val recommendationsLoading: Boolean = false,
+    val recommendationsError: String? = null,
 ) {
     /**
      * Offline means the server was probed and wasn't there. Before the first probe it
@@ -125,6 +129,47 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     val local get() = shelf.local
     private val cache get() = shelf.cache
+    private val recommendationService get() = shelf.recommendations
+    private var recommendationJob: Job? = null
+
+    /** Loads the last discovery result immediately, then refreshes it when its daily cache expires. */
+    fun refreshRecommendations(force: Boolean = false) {
+        if (recommendationJob?.isActive == true && !force) return
+        recommendationJob?.cancel()
+        recommendationJob = viewModelScope.launch {
+            val snapshot = _state.value
+            if (snapshot.allItems.isEmpty()) return@launch
+            if (snapshot.recommendations.isEmpty()) {
+                val cached = recommendationService.cached()
+                if (cached.isNotEmpty()) _state.value = _state.value.copy(recommendations = cached)
+            }
+            _state.value = _state.value.copy(
+                recommendationsLoading = _state.value.recommendations.isEmpty(),
+                recommendationsError = null,
+            )
+            try {
+                val current = _state.value
+                val books = recommendationService.recommendations(
+                    library = current.allItems,
+                    favorites = current.favorites,
+                    progress = current.progress,
+                    force = force,
+                )
+                _state.value = _state.value.copy(
+                    recommendations = books,
+                    recommendationsLoading = false,
+                    recommendationsError = if (books.isEmpty()) "No matches yet" else null,
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    recommendationsLoading = false,
+                    recommendationsError = if (_state.value.recommendations.isEmpty()) {
+                        e.message ?: "Could not load recommendations"
+                    } else null,
+                )
+            }
+        }
+    }
 
     /**
      * Cover for any book. On-device books use the file scanned out of their folder and
