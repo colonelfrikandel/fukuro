@@ -88,6 +88,7 @@ class Store(private val context: Context) {
         val LISTENING_SESSIONS = stringPreferencesKey("listening_sessions") // most recent local sessions
         val RECOMMENDATION_FEEDBACK = stringPreferencesKey("recommendation_feedback")
         val RECOMMENDATION_EXCLUDED_TAGS = stringPreferencesKey("recommendation_excluded_tags")
+        val RECOMMENDATION_LANGUAGE = stringPreferencesKey("recommendation_language")
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -150,6 +151,9 @@ class Store(private val context: Context) {
     val recommendationExcludedTagsFlow: Flow<String> = context.dataStore.data.map {
         it[K.RECOMMENDATION_EXCLUDED_TAGS] ?: ""
     }
+    val recommendationLanguageFlow: Flow<String> = context.dataStore.data.map {
+        it[K.RECOMMENDATION_LANGUAGE] ?: ""
+    }
     val homeSectionsFlow: Flow<String> =
         context.dataStore.data.map { it[K.HOME_SECTIONS] ?: DEFAULT_SECTIONS }
     val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
@@ -184,6 +188,13 @@ class Store(private val context: Context) {
             .map(String::trim)
             .filter(String::isNotEmpty)
             .distinctBy { it.lowercase() }
+    }
+    suspend fun setRecommendationLanguage(v: String) = context.dataStore.edit {
+        it[K.RECOMMENDATION_LANGUAGE] = v.trim().lowercase()
+    }
+    suspend fun recommendationLanguage(): String {
+        return context.dataStore.data.first()[K.RECOMMENDATION_LANGUAGE]
+            .orEmpty().trim().lowercase()
     }
     suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
     suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
