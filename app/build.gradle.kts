@@ -68,6 +68,16 @@ android {
     }
 }
 
+androidComponents {
+    // This test package previously shipped with versionCode 82. Keep production
+    // at 80 while allowing this debug build to update the installed test app.
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(83)
+        }
+    }
+}
+
 dependencies {
     // Android + Compose
     implementation("androidx.core:core-ktx:1.15.0")
