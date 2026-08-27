@@ -44,7 +44,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle as collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,7 +73,7 @@ import kotlinx.coroutines.launch
 @Composable
 private fun UpdatesSection(vm: ShelfViewModel) {
     val u by vm.update.collectAsState()
-    val auto by vm.store.autoUpdateFlow.collectAsState(initial = true)
+    val auto by vm.store.autoUpdateFlow.collectAsState(initialValue = true)
     val scope = rememberCoroutineScope()
     val info = u.info
 
@@ -218,18 +218,18 @@ fun SettingsScreen(
     onOpenUpload: () -> Unit = {},
     onSignIn: () -> Unit = {},
 ) {
-    val theme by vm.store.themeFlow.collectAsState(initial = "system")
-    val accent by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
-    val progressStyle by vm.store.progressStyleFlow.collectAsState(initial = "circle")
-    val coverSize by vm.store.coverSizeFlow.collectAsState(initial = 2)
-    val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
-    val skipForward by vm.store.skipForwardFlow.collectAsState(initial = 30)
-    val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
-    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
-    val autoNext by vm.store.autoNextFlow.collectAsState(initial = false)
+    val theme by vm.store.themeFlow.collectAsState(initialValue = "system")
+    val accent by vm.store.accentFlow.collectAsState(initialValue = DEFAULT_ACCENT)
+    val progressStyle by vm.store.progressStyleFlow.collectAsState(initialValue = "circle")
+    val coverSize by vm.store.coverSizeFlow.collectAsState(initialValue = 2)
+    val skipBack by vm.store.skipBackFlow.collectAsState(initialValue = 10)
+    val skipForward by vm.store.skipForwardFlow.collectAsState(initialValue = 30)
+    val trackScope by vm.store.trackScopeFlow.collectAsState(initialValue = "book")
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initialValue = "chapter")
+    val autoNext by vm.store.autoNextFlow.collectAsState(initialValue = false)
     var showPicker by remember { mutableStateOf(false) }
     val state by vm.state.collectAsState()
-    val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
+    val localFolder by vm.store.localFolderFlow.collectAsState(initialValue = "")
     val context = LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
@@ -248,11 +248,11 @@ fun SettingsScreen(
             vm.setLocalFolder(uri.toString())
         }
     }
-    val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
-    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
-    val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
-    val server by vm.store.serverFlow.collectAsState(initial = null)
-    val username by vm.store.usernameFlow.collectAsState(initial = null)
+    val storedApiKey by vm.store.apiKeyFlow.collectAsState(initialValue = "")
+    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initialValue = Store.DEFAULT_SECTIONS)
+    val customShelf by vm.store.customShelfFlow.collectAsState(initialValue = emptyList())
+    val server by vm.store.serverFlow.collectAsState(initialValue = null)
+    val username by vm.store.usernameFlow.collectAsState(initialValue = null)
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     var showCustomShelfEditor by remember { mutableStateOf(false) }

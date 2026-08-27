@@ -79,7 +79,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle as collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,6 +87,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,8 +115,8 @@ import coil.compose.AsyncImage
 @Composable
 fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> Unit) {
     val state by vm.state.collectAsState()
-    val savedServer by vm.store.serverFlow.collectAsState(initial = null)
-    val savedUser by vm.store.usernameFlow.collectAsState(initial = null)
+    val savedServer by vm.store.serverFlow.collectAsState(initialValue = null)
+    val savedUser by vm.store.usernameFlow.collectAsState(initialValue = null)
     var addr by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("13378") }
     var https by remember { mutableStateOf(false) }
@@ -548,6 +550,84 @@ fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
 
 /* ---------------- Home ---------------- */
 
+private data class HomeContent(
+    val inProgress: List<LibraryItem> = emptyList(),
+    val series: List<AbsSeries> = emptyList(),
+    val favorites: List<LibraryItem> = emptyList(),
+    val completed: List<LibraryItem> = emptyList(),
+    val downloaded: List<LibraryItem> = emptyList(),
+    val custom: List<CustomShelfEntry> = emptyList(),
+    val authors: List<Pair<AbsAuthor, Int>> = emptyList(),
+    val narrators: List<Pair<String, Int>> = emptyList(),
+    val allBooks: List<LibraryItem> = emptyList(),
+)
+
+private fun buildHomeContent(
+    state: UiState,
+    enabledSections: Set<String>,
+    customShelf: List<CustomShelfEntry>,
+): HomeContent {
+    val items = state.items
+    val booksById = items.associateBy { it.id }
+    val seriesById = state.series.associateBy { it.id }
+    val authorNames = items.flatMap(::authorsOf)
+    val authorCounts = authorNames.map { it.lowercase() }
+        .groupingBy { it }.eachCount()
+    val narratorCounts = items.flatMap(::narratorsOf).groupingBy { it }.eachCount()
+
+    val inProgress = if ("continue" in enabledSections) items.filter { item ->
+        val progress = state.progress[item.id]
+        progress != null && !progress.isFinished && progress.progress > 0.001 &&
+            item.id !in state.continueHidden
+    }.sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
+
+    val visibleSeries = if ("series" in enabledSections) state.series.map { series ->
+        if (state.offline) series.copy(books = series.books.filter { state.isOnDevice(it.id) }) else series
+    }.filter { it.books.isNotEmpty() } else emptyList()
+
+    val favorites = if ("favorites" in enabledSections)
+        items.filter { it.id in state.favorites } else emptyList()
+    val completed = if ("completed" in enabledSections) items
+        .filter { state.progress[it.id]?.isFinished == true }
+        .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
+    val downloaded = if ("downloaded" in enabledSections)
+        items.filter { it.id in state.downloadedIds } else emptyList()
+
+    val custom = if ("custom" in enabledSections) customShelf.filter { entry ->
+        when (entry.type) {
+            "book" -> entry.id in booksById
+            "series" -> seriesById[entry.id]?.books?.any {
+                !state.offline || state.isOnDevice(it.id)
+            } == true
+            "author" -> authorCounts[entry.id.lowercase()] != null
+            "narrator" -> narratorCounts.keys.any { it.equals(entry.id, ignoreCase = true) }
+            else -> false
+        }
+    } else emptyList()
+
+    val authors = if ("authors" in enabledSections) {
+        state.authors.ifEmpty {
+            authorNames.distinctBy { it.lowercase() }
+                .map { name -> AbsAuthor(id = "", name = name, numBooks = authorCounts[name.lowercase()] ?: 0) }
+                .sortedBy { it.name }
+        }.mapNotNull { author ->
+            val count = authorCounts[author.name.lowercase()] ?: 0
+            if (state.offline && count == 0) null else author to count
+        }
+    } else emptyList()
+
+    val narrators = if ("narrators" in enabledSections)
+        narratorCounts.toList().sortedBy { it.first.lowercase() } else emptyList()
+    val allBooks = if ("all" in enabledSections) items.sortedBy {
+        it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title
+    } else emptyList()
+
+    return HomeContent(
+        inProgress, visibleSeries, favorites, completed, downloaded,
+        custom, authors, narrators, allBooks,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -559,8 +639,21 @@ fun HomeScreen(
     onOpenAuthor: (String) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
-    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
-    val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
+    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initialValue = Store.DEFAULT_SECTIONS)
+    val customShelf by vm.store.customShelfFlow.collectAsState(initialValue = emptyList())
+    val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
+    var homeContent by remember { mutableStateOf(HomeContent()) }
+    LaunchedEffect(
+        state.allItems, state.series, state.authors,
+        state.serverProgress, state.localProgress,
+        state.downloadedIds, state.favorites, state.continueHidden,
+        state.serverChecked, state.serverOnline,
+        sectionsCsv, customShelf,
+    ) {
+        homeContent = withContext(Dispatchers.Default) {
+            buildHomeContent(state, sections.toSet(), customShelf)
+        }
+    }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -614,12 +707,11 @@ fun HomeScreen(
         ) {
         LazyColumn(Modifier.fillMaxSize()) {
             item { UpdateBanner(vm) }
-            val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
             sections.forEach { section ->
                 when (section) {
                     "continue" -> {
                         // most recently listened first; dismissed books are left out
-                        val inProgress = vm.continueListening()
+                        val inProgress = homeContent.inProgress
                         if (inProgress.isNotEmpty()) {
                             item { SectionHeader("Continue Listening") }
                             item { BookRow(vm, inProgress, state, onOpenBook) }
@@ -628,11 +720,7 @@ fun HomeScreen(
                     "series" -> {
                         // offline a series shrinks to the part of it that's on the device,
                         // and drops out entirely when none of it is
-                        val withBooks = state.series
-                            .map { s ->
-                                if (state.offline) s.copy(books = s.books.filter { state.isOnDevice(it.id) }) else s
-                            }
-                            .filter { it.books.isNotEmpty() }
+                        val withBooks = homeContent.series
                         if (withBooks.isNotEmpty()) {
                             item { SectionHeader("Series") }
                             item {
@@ -653,7 +741,7 @@ fun HomeScreen(
                         }
                     }
                     "favorites" -> {
-                        val favs = state.items.filter { it.id in state.favorites }
+                        val favs = homeContent.favorites
                         if (favs.isNotEmpty()) {
                             item { SectionHeader("Favorites") }
                             item { BookRow(vm, favs, state, onOpenBook) }
@@ -661,32 +749,21 @@ fun HomeScreen(
                     }
                     "completed" -> {
                         // most recently finished first, so the shelf reflects what you just ended
-                        val done = state.items
-                            .filter { state.progress[it.id]?.isFinished == true }
-                            .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L }
+                        val done = homeContent.completed
                         if (done.isNotEmpty()) {
                             item { SectionHeader("Completed") }
                             item { BookRow(vm, done, state, onOpenBook) }
                         }
                     }
                     "downloaded" -> {
-                        val downloaded = state.items.filter { it.id in state.downloadedIds }
+                        val downloaded = homeContent.downloaded
                         if (downloaded.isNotEmpty()) {
                             item { SectionHeader("Downloaded") }
                             item { BookRow(vm, downloaded, state, onOpenBook) }
                         }
                     }
                     "custom" -> {
-                        val visible = customShelf.filter { entry ->
-                            when (entry.type) {
-                                "book" -> state.items.any { it.id == entry.id }
-                                "series" -> state.series.firstOrNull { it.id == entry.id }
-                                    ?.books?.any { !state.offline || state.isOnDevice(it.id) } == true
-                                "author" -> state.items.any { it.hasAuthor(entry.id) }
-                                "narrator" -> state.items.any { it.hasNarrator(entry.id) }
-                                else -> false
-                            }
-                        }
+                        val visible = homeContent.custom
                         if (visible.isNotEmpty()) {
                             item { SectionHeader("Custom") }
                             item {
@@ -705,21 +782,12 @@ fun HomeScreen(
                     "authors" -> {
                         // prefer the server's author list (it carries portraits); fall back to
                         // grouping books by author name when the endpoint isn't available
-                        val authors = state.authors.ifEmpty {
-                            // split co-authors so each gets their own card
-                            state.items.flatMap { authorsOf(it) }
-                                .groupingBy { it }.eachCount()
-                                .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
-                                .sortedBy { it.name.lowercase() }
-                        }
-                            // offline, an author whose books are all on the server is a dead end
-                            .filter { a -> !state.offline || state.items.any { it.hasAuthor(a.name) } }
+                        val authors = homeContent.authors
                         if (authors.isNotEmpty()) {
                             item { SectionHeader("Authors") }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                    items(authors, key = { it.id.ifBlank { it.name } }) { author ->
-                                        val books = state.items.count { it.hasAuthor(author.name) }
+                                    items(authors, key = { it.first.id.ifBlank { it.first.name } }) { (author, books) ->
                                         CollectionCard(
                                             covers = listOf(author.imagePath?.let { vm.api.authorImageUrl(author.id) }),
                                             title = author.name,
@@ -736,9 +804,7 @@ fun HomeScreen(
                         }
                     }
                     "narrators" -> {
-                        val narrators = state.items.flatMap { narratorsOf(it) }
-                            .groupingBy { it }.eachCount()
-                            .toList().sortedBy { it.first.lowercase() }
+                        val narrators = homeContent.narrators
                         if (narrators.isNotEmpty()) {
                             item { SectionHeader("Narrators") }
                             item {
@@ -761,7 +827,7 @@ fun HomeScreen(
                     }
                     "all" -> {
                         item { SectionHeader("All Books") }
-                        item { BookRow(vm, state.items.sortedBy { it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title }, state, onOpenBook) }
+                        item { BookRow(vm, homeContent.allBooks, state, onOpenBook) }
                     }
                 }
             }
@@ -847,7 +913,7 @@ fun LibraryScreen(
     // the floating chrome is taller when the mini player is showing
     val chromeHeight = if (miniPlayerVisible) 140.dp else 84.dp
     val state by vm.state.collectAsState()
-    val favoritesTop by vm.store.favoritesTopFlow.collectAsState(initial = false)
+    val favoritesTop by vm.store.favoritesTopFlow.collectAsState(initialValue = false)
     var query by remember { mutableStateOf("") }
     var sortBy by remember { mutableStateOf("title") }
     var filterBy by remember { mutableStateOf("all") }

@@ -140,12 +140,21 @@ class PlayerService : MediaLibraryService() {
             }
         })
 
-        // periodic progress sync while playing
+        // Keep the crash-safe local resume point reasonably fresh, but upload much less
+        // often. Pause/book changes/teardown still flush immediately below.
         scope.launch {
+            var nextUploadAt = android.os.SystemClock.elapsedRealtime() + 120_000L
+            var retryDelay = 120_000L
             while (isActive) {
-                delay(15_000)
+                delay(30_000)
                 if (player.isPlaying) {
-                    syncProgress()
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val shouldUpload = now >= nextUploadAt
+                    val uploaded = syncProgress(uploadToServer = shouldUpload)
+                    if (shouldUpload) {
+                        retryDelay = if (uploaded) 120_000L else (retryDelay * 2).coerceAtMost(480_000L)
+                        nextUploadAt = now + retryDelay
+                    }
                     publishNowPlaying() // moves the widget progress bar along
                 }
             }
@@ -398,19 +407,22 @@ class PlayerService : MediaLibraryService() {
         }
     }
 
-    private suspend fun syncProgress() {
-        val id = currentItemId ?: return
+    private suspend fun syncProgress(uploadToServer: Boolean = true): Boolean {
+        val id = currentItemId ?: return true
         val pos = bookPositionSec()
-        // This runs from coroutines — the 15s tick, the pause listener — and by the time one
+        // This runs from coroutines — the periodic tick, the pause listener — and by the time one
         // of them gets its turn the player may already have been stopped and cleared, which
         // reads back as position 0. Saving that would wipe the listener's place in the book,
         // and a genuine 0 is nothing to resume from anyway.
-        if (pos <= 0.0 || player.mediaItemCount == 0) return
+        if (pos <= 0.0 || player.mediaItemCount == 0) return true
         store.setLocalProgress(id, pos) // always cache locally (offline resume)
-        if (LocalLibrary.isLocal(id)) return // on-device book: nothing to sync
-        try {
+        if (!uploadToServer || LocalLibrary.isLocal(id)) return true
+        return try {
             api.updateProgress(id, pos, currentItemDuration)
-        } catch (_: Exception) { /* offline: ignore, the app pushes it on reconnect */ }
+            true
+        } catch (_: Exception) {
+            false // local copy remains authoritative; reconnect pushes it later
+        }
     }
 
     /**
@@ -436,6 +448,9 @@ class PlayerService : MediaLibraryService() {
 
     /** Load a book: build the multi-track playlist. Prefers downloaded local files. */
     private suspend fun buildPlaylist(itemId: String, startAtSec: Double?): List<MediaItem> {
+        // A direct jump to another book does not necessarily pause first. Flush the old
+        // book while its timeline and duration are still available.
+        if (currentItemId != null && currentItemId != itemId) syncProgress()
         // local copy first (instant), then cache, then network; offline fallback to local
         val item = try { fetchItem(itemId) } catch (e: Exception) {
             downloads.localItem(itemId) ?: throw e

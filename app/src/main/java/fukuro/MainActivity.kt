@@ -55,7 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle as collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +77,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -114,8 +114,8 @@ class MainActivity : ComponentActivity() {
         future.addListener({ controller = future.get() }, MoreExecutors.directExecutor())
 
         setContent {
-            val themePref by vm.store.themeFlow.collectAsState(initial = "system")
-            val accentPref by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
+            val themePref by vm.store.themeFlow.collectAsState(initialValue = "system")
+            val accentPref by vm.store.accentFlow.collectAsState(initialValue = DEFAULT_ACCENT)
             ShelfTheme(themePref, accentPref) {
                 // saved across configuration changes: a rotation should not replay it
                 var splashDone by androidx.compose.runtime.saveable.rememberSaveable {
@@ -132,6 +132,16 @@ class MainActivity : ComponentActivity() {
                 if (!splashDone) SplashLogo(onReveal = { appBuilt = true }) { splashDone = true }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.setAppVisible(true)
+    }
+
+    override fun onStop() {
+        vm.setAppVisible(false)
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -156,7 +166,7 @@ fun AppNav(
     onLinkHandled: () -> Unit = {},
 ) {
     val nav = rememberNavController()
-    val state by vm.state.collectAsState()
+    val progressByItem by vm.visibleProgress.collectAsState()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route ?: ""
 
@@ -173,7 +183,7 @@ fun AppNav(
         val c = controller ?: return
         // A chapter tap supplies an explicit start. Ordinary launches keep using the
         // saved position so the main play button still behaves as Resume.
-        val saved = state.progress[itemId]?.takeIf { !it.isFinished && it.progress > 0.001 }?.currentTime
+        val saved = progressByItem[itemId]?.takeIf { !it.isFinished && it.progress > 0.001 }?.currentTime
         val extras = Bundle().apply { putDouble("startTimeSec", startAtSec ?: saved ?: 0.0) }
         c.setMediaItem(
             MediaItem.Builder().setMediaId("${PlayerService.BOOK_PREFIX}$itemId")
@@ -395,8 +405,9 @@ private fun MiniPlayer(
     onPlayBook: (String) -> Unit = {},
     onOpen: () -> Unit,
 ) {
-    val state by vm.state.collectAsState()
-    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
+    val state by vm.miniPlayerState.collectAsState()
+    val progressByItem by vm.visibleProgress.collectAsState()
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initialValue = "chapter")
     val swipePx = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
     var metaTitle by androidx.compose.runtime.remember { mutableStateOf("") }
     var currentItemId by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
@@ -441,7 +452,7 @@ private fun MiniPlayer(
 
     // live value while playing; fall back to the synced position before the first tick
     val progress = if (livePos > 0f) livePos else currentItemId?.let { id ->
-        state.progress[id]?.progress?.toFloat()?.coerceIn(0f, 1f)
+        progressByItem[id]?.progress?.toFloat()?.coerceIn(0f, 1f)
     } ?: 0f
 
     // prefer live library title so a rename shows immediately
@@ -581,7 +592,7 @@ private suspend fun extractCoverColor(context: android.content.Context, model: A
     withContext(Dispatchers.IO) {
         try {
             val req = ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
-            val drawable = ImageLoader(context).execute(req).drawable ?: return@withContext null
+            val drawable = context.imageLoader.execute(req).drawable ?: return@withContext null
             val source = (drawable as? BitmapDrawable)?.bitmap ?: return@withContext null
 
             val w = 32

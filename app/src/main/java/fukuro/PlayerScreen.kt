@@ -75,7 +75,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle as collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -149,10 +149,10 @@ fun PlayerScreen(
     onOpenAuthor: (String) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
-    val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
-    val skipFwd by vm.store.skipForwardFlow.collectAsState(initial = 30)
-    val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
-    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
+    val skipBack by vm.store.skipBackFlow.collectAsState(initialValue = 10)
+    val skipFwd by vm.store.skipForwardFlow.collectAsState(initialValue = 30)
+    val trackScope by vm.store.trackScopeFlow.collectAsState(initialValue = "book")
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initialValue = "chapter")
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -846,10 +846,10 @@ private fun SheetAction(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 /** Download / downloading / downloaded-tap-to-remove, as a single icon button. */
 @Composable
 private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
-    val state by vm.state.collectAsState()
+    val downloadedIds by vm.downloadedIdsState.collectAsState()
     val dlStates by vm.downloadStates.collectAsState()
     val dl = dlStates[itemId]
-    val isDownloaded = itemId in state.downloadedIds
+    val isDownloaded = itemId in downloadedIds
     var confirmRemove by remember { mutableStateOf(false) }
 
     if (confirmRemove) {

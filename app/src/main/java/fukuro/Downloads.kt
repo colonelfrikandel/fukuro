@@ -111,12 +111,20 @@ class DownloadRepo(
             val files = item.media.audioFiles.sortedBy { it.index }
             val totalBytes = files.sumOf { it.metadata.size }.coerceAtLeast(1)
             var doneBytes = 0L
+            var lastUiUpdateAt = 0L
+            var lastUiProgress = 0f
             for (f in files) {
                 val out = File(d, "${f.ino}.audio")
                 if (!out.exists() || out.length() != f.metadata.size) {
                     fetchTo(api.fileUrl(itemId, f.ino), out) { written ->
                         val p = (doneBytes + written).toFloat() / totalBytes
-                        _states.value = _states.value + (itemId to DownloadState(p.coerceIn(0f, 1f)))
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastUiUpdateAt >= 150L || p - lastUiProgress >= 0.01f) {
+                            lastUiUpdateAt = now
+                            lastUiProgress = p
+                            _states.value = _states.value +
+                                (itemId to DownloadState(p.coerceIn(0f, 1f)))
+                        }
                     }
                 }
                 doneBytes += f.metadata.size

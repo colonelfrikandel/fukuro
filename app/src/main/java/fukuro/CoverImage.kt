@@ -22,7 +22,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 
 /**
  * Image with a placeholder shown while loading and when there is nothing to show.
@@ -35,14 +36,21 @@ fun CoverImage(
     modifier: Modifier = Modifier,
     placeholder: @Composable () -> Unit = { CoverPlaceholder() },
 ) {
-    SubcomposeAsyncImage(
-        model = model,
-        contentDescription = contentDescription,
-        modifier = modifier,
-        contentScale = ContentScale.Crop,
-        loading = { placeholder() },
-        error = { placeholder() },
-    )
+    val painter = rememberAsyncImagePainter(model)
+    Box(modifier) {
+        Image(
+            painter = painter,
+            contentDescription = contentDescription,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        if (model == null || painter.state is AsyncImagePainter.State.Loading ||
+            painter.state is AsyncImagePainter.State.Error ||
+            painter.state is AsyncImagePainter.State.Empty
+        ) {
+            placeholder()
+        }
+    }
 }
 
 /**

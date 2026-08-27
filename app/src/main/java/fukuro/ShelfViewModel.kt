@@ -9,6 +9,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import android.net.Uri
@@ -63,6 +68,11 @@ data class UiState(
     }
 }
 
+data class MiniPlayerUiState(
+    val items: List<LibraryItem> = emptyList(),
+    val favorites: Set<String> = emptySet(),
+)
+
 /** @see UiState.progress */
 private fun mergeProgress(
     server: Map<String, MediaProgress>,
@@ -116,6 +126,25 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
+
+    // Narrow streams keep unrelated server, download and settings updates from
+    // recomposing the app shell and persistent mini player.
+    val visibleProgress: StateFlow<Map<String, MediaProgress>> = state
+        .map { it.progress }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    val miniPlayerState: StateFlow<MiniPlayerUiState> = state
+        .map { MiniPlayerUiState(it.items, it.favorites) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MiniPlayerUiState())
+
+    val downloadedIdsState: StateFlow<Set<String>> = state
+        .map { it.downloadedIds }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    private val appVisible = MutableStateFlow(false)
 
     private val _update = MutableStateFlow(UpdateUi())
     val update: StateFlow<UpdateUi> = _update
@@ -189,25 +218,41 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             store.localProgressFlow.collect { p -> _state.value = _state.value.copy(localProgress = p) }
         }
-        // connection indicator + live progress: every 15s
+        // Poll only while the activity is visible. /api/me proves connectivity and returns
+        // progress in one request; failures back off instead of waking the radio every 15s.
         viewModelScope.launch {
-            while (isActive) {
-                delay(15_000)
-                if (_state.value.loggedIn) {
+            appVisible.collectLatest { visible ->
+                if (!visible) return@collectLatest
+                var retryDelay = 30_000L
+                // Initial refresh already checks connectivity and progress. Waiting here
+                // avoids immediately duplicating that request when the activity starts.
+                delay(30_000)
+                while (isActive) {
+                    if (!_state.value.loggedIn) {
+                        delay(30_000)
+                        continue
+                    }
                     val wasOffline = !_state.value.serverOnline
-                    val ok = api.ping()
-                    // refresh just the progress map so list progress bars track live playback
-                    val progress = if (ok) try {
+                    val progress = try {
                         api.me().mediaProgress.associateBy { it.libraryItemId }
-                    } catch (_: Exception) { _state.value.serverProgress } else _state.value.serverProgress
+                    } catch (_: Exception) { null }
+                    val ok = progress != null
                     _state.value = _state.value.copy(
-                        serverOnline = ok, serverChecked = true, serverProgress = progress
+                        serverOnline = ok,
+                        serverChecked = true,
+                        serverProgress = progress ?: _state.value.serverProgress,
                     )
                     // the connection just came back: hand over anything listened to without it
-                    if (ok && wasOffline) pushLocalProgress(progress)
+                    if (progress != null && wasOffline) pushLocalProgress(progress)
+                    retryDelay = if (ok) 30_000L else (retryDelay * 2).coerceAtMost(300_000L)
+                    delay(retryDelay)
                 }
             }
         }
+    }
+
+    fun setAppVisible(visible: Boolean) {
+        appVisible.value = visible
     }
 
     fun login(server: String, username: String, password: String, onDone: (Boolean) -> Unit) {

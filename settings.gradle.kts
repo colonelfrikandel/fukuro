@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Fukuro"
 include(":app")
+include(":baselineprofile")

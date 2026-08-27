@@ -6,8 +6,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,6 +23,9 @@ private val Context.dataStore by preferencesDataStore(name = "fukuro")
 
 /** Small persistent settings store. Blocking getters exist for non-suspend call sites (URL builders). */
 class Store(private val context: Context) {
+
+    private val progressDao = ProgressDatabase.create(context).progress()
+    private val progressReady = CompletableDeferred<Unit>()
 
     /*
      * Values the UI and the player service need synchronously (cover URLs are built
@@ -48,6 +54,16 @@ class Store(private val context: Context) {
                 mSkipForward = p[K.SKIP_FORWARD]?.toIntOrNull() ?: 30
                 mTrackScope = p[K.TRACK_SCOPE] ?: "book"
                 mAutoNext = p[K.AUTO_NEXT] ?: false
+            }
+        }
+        // One-time, lossless migration from the old JSON preference. The preference is
+        // removed only after Room has accepted every row, so an interrupted migration
+        // is safe to retry on the next launch.
+        mirrorScope.launch {
+            try {
+                migrateLegacyProgress()
+            } finally {
+                progressReady.complete(Unit)
             }
         }
     }
@@ -214,10 +230,15 @@ class Store(private val context: Context) {
     private val progressJson = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     val localProgressFlow: Flow<Map<String, LocalProgress>> =
-        context.dataStore.data.map { decodeProgress(it[K.LOCAL_PROGRESS]) }
+        flow {
+            progressReady.await()
+            emitAll(progressDao.observeAll().map { rows -> rows.associate { it.itemId to it.asModel() } })
+        }
 
-    suspend fun localProgress(): Map<String, LocalProgress> =
-        decodeProgress(context.dataStore.data.first()[K.LOCAL_PROGRESS])
+    suspend fun localProgress(): Map<String, LocalProgress> {
+        progressReady.await()
+        return progressDao.getAll().associate { it.itemId to it.asModel() }
+    }
 
     /** Reads both the current shape and the plain `{id: seconds}` written before 1.3.2. */
     private fun decodeProgress(raw: String?): Map<String, LocalProgress> {
@@ -230,20 +251,20 @@ class Store(private val context: Context) {
         return emptyMap()
     }
 
-    /**
-     * Read-modify-write inside a single [edit] so two saves landing together — the player's
-     * 15s tick and a teardown save, say — cannot drop one of the two.
-     */
     suspend fun setLocalProgress(itemId: String, currentTimeSec: Double, finished: Boolean? = null) {
-        context.dataStore.edit { prefs ->
-            val map = decodeProgress(prefs[K.LOCAL_PROGRESS]).toMutableMap()
-            map[itemId] = LocalProgress(
-                pos = currentTimeSec,
-                updatedAt = System.currentTimeMillis(),
-                finished = finished ?: map[itemId]?.finished ?: false,
-            )
-            prefs[K.LOCAL_PROGRESS] = progressJson.encodeToString<Map<String, LocalProgress>>(map)
+        progressReady.await()
+        progressDao.update(itemId, currentTimeSec, finished)
+    }
+
+    private suspend fun migrateLegacyProgress() {
+        val raw = context.dataStore.data.first()[K.LOCAL_PROGRESS] ?: return
+        val legacy = decodeProgress(raw)
+        if (legacy.isNotEmpty()) {
+            progressDao.insertLegacy(legacy.map { (itemId, progress) ->
+                ProgressEntity(itemId, progress.pos, progress.updatedAt, progress.finished)
+            })
         }
+        context.dataStore.edit { it.remove(K.LOCAL_PROGRESS) }
     }
 
     /**
