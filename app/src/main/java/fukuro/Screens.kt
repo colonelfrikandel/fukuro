@@ -1737,6 +1737,39 @@ fun RecommendationDetailScreen(
 
             Spacer(Modifier.height(24.dp))
             Text(
+                "Tune recommendations",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = { vm.boostRecommendation(book); onBack() }) {
+                    Text("Interested")
+                }
+                OutlinedButton(onClick = { vm.dismissRecommendation(book); onBack() }) {
+                    Text("Not interested")
+                }
+                OutlinedButton(onClick = { vm.dismissRecommendation(book); onBack() }) {
+                    Text("Already own")
+                }
+                book.authors.firstOrNull()?.let { author ->
+                    OutlinedButton(onClick = { vm.reduceRecommendationAuthor(book); onBack() }) {
+                        Text("Less from $author")
+                    }
+                }
+                book.primaryTopic?.let { topic ->
+                    OutlinedButton(onClick = { vm.reduceRecommendationTopic(book); onBack() }) {
+                        Text("Less $topic")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Text(
                 "Metadata from ${book.provider}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
