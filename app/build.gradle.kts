@@ -40,6 +40,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keep performance-test builds beside the user's regular Fukuro install.
+            applicationIdSuffix = ".glassdev"
+            versionNameSuffix = "-performance-test"
+            resValue("string", "app_name", "Fukuro Test")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
