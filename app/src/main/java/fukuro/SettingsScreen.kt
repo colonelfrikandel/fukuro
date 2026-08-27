@@ -249,6 +249,7 @@ fun SettingsScreen(
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
     val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
+    val storedExcludedTags by vm.store.recommendationExcludedTagsFlow.collectAsState(initial = "")
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
     val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
     val server by vm.store.serverFlow.collectAsState(initial = null)
@@ -256,6 +257,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     var googleBooksKeyText by remember(storedGoogleBooksKey) { mutableStateOf(storedGoogleBooksKey) }
+    var excludedTagsText by remember(storedExcludedTags) { mutableStateOf(storedExcludedTags) }
     var showCustomShelfEditor by remember { mutableStateOf(false) }
 
     val enabled = sectionsCsv.split(',').filter { it.isNotBlank() }
@@ -576,6 +578,24 @@ fun SettingsScreen(
                     vm.refreshRecommendations(force = true)
                 }
             }) { Text("Save and refresh") }
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                excludedTagsText,
+                { excludedTagsText = it },
+                label = { Text("Excluded recommendation tags") },
+                supportingText = {
+                    Text("Separate tags with commas, for example: children, juvenile fiction, young adult")
+                },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.setRecommendationExcludedTags(excludedTagsText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save exclusions and refresh") }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
                 scope.launch {
